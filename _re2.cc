@@ -35,6 +35,8 @@
 using std::nothrow;
 
 #include <re2/re2.h>
+#include <re2/regexp.h>
+#include <re2/prog.h>
 using re2::RE2;
 using re2::StringPiece;
 
@@ -45,6 +47,15 @@ typedef struct _RegexpObject2 {
   PyObject* attr_dict;
   RE2* re2_obj;
 } RegexpObject2;
+
+typedef struct _ProgObject2 {
+  PyObject_HEAD
+  // __dict__.  Simpler than implementing getattr and possibly faster.
+  PyObject* attr_dict;
+
+  PyObject* re;
+  re2::Prog* prog_obj;
+} ProgObject2;
 
 typedef struct _MatchObject2 {
   PyObject_HEAD
@@ -78,6 +89,8 @@ static PyObject* regexp_fullmatch(RegexpObject2* self, PyObject* args, PyObject*
 static PyObject* regexp_test_search(RegexpObject2* self, PyObject* args, PyObject* kwds);
 static PyObject* regexp_test_match(RegexpObject2* self, PyObject* args, PyObject* kwds);
 static PyObject* regexp_test_fullmatch(RegexpObject2* self, PyObject* args, PyObject* kwds);
+static PyObject* regexp_compile_to_prog(RegexpObject2* self, PyObject* args, PyObject* kwds);
+static void prog_dealloc(ProgObject2* self);
 static void match_dealloc(MatchObject2* self);
 static PyObject* create_match(PyObject* re, PyObject* string, long pos, long endpos, StringPiece* groups);
 static PyObject* match_group(MatchObject2* self, PyObject* args);
@@ -114,6 +127,9 @@ static PyMethodDef regexp_methods[] = {
     "test_fullmatch(string[, pos[, endpos]]) --> match object or None.\n"
     "    Like 'fullmatch', but only returns whether a match was found."
   },
+  {"compile_to_prog", (PyCFunction)regexp_compile_to_prog, METH_NOARGS,
+	"compile_to_prog() --> compile regex object to a binary program."
+  },
   {NULL}  /* Sentinel */
 };
 
@@ -137,6 +153,10 @@ static PyMethodDef match_methods[] = {
     NULL
   },
   {NULL}  /* Sentinel */
+};
+
+static PyMethodDef prog_methods[] = {
+	
 };
 
 
@@ -194,6 +214,48 @@ static PyTypeObject Regexp_Type2 = {
   0,                           /*tp_new*/
 };
 
+static PyTypeObject Prog_Type2 = {
+  PyObject_HEAD_INIT(NULL)
+  0,                           /*ob_size*/
+  "_re2.RE2_Prog",             /*tp_name*/
+  sizeof(ProgObject2),         /*tp_basicsize*/
+  0,                           /*tp_itemsize*/
+  (destructor)prog_dealloc,    /*tp_dealloc*/
+  0,                           /*tp_print*/
+  0,                           /*tp_getattr*/
+  0,                           /*tp_setattr*/
+  0,                           /*tp_compare*/
+  0,                           /*tp_repr*/
+  0,                           /*tp_as_number*/
+  0,                           /*tp_as_sequence*/
+  0,                           /*tp_as_mapping*/
+  0,                           /*tp_hash*/
+  0,                           /*tp_call*/
+  0,                           /*tp_str*/
+  0,                           /*tp_getattro*/
+  _no_setattr,                 /*tp_setattro*/
+  0,                           /*tp_as_buffer*/
+  Py_TPFLAGS_DEFAULT,          /*tp_flags*/
+  "RE2 prog objects",          /*tp_doc*/
+  0,                           /*tp_traverse*/
+  0,                           /*tp_clear*/
+  0,                           /*tp_richcompare*/
+  0,                           /*tp_weaklistoffset*/
+  0,                           /*tp_iter*/
+  0,                           /*tp_iternext*/
+  prog_methods,                /*tp_methods*/
+  0,                           /*tp_members*/
+  0,                           /*tp_getset*/
+  0,                           /*tp_base*/
+  0,                           /*tp_dict*/
+  0,                           /*tp_descr_get*/
+  0,                           /*tp_descr_set*/
+  offsetof(ProgObject2, attr_dict),  /*tp_dictoffset*/
+  0,                           /*tp_init*/
+  0,                           /*tp_alloc*/
+  0,                           /*tp_new*/
+};
+
 static PyTypeObject Match_Type2 = {
   PyObject_HEAD_INIT(NULL)
   0,                           /*ob_size*/
@@ -236,13 +298,20 @@ static PyTypeObject Match_Type2 = {
   0,                           /*tp_new*/
 };
 
-
 static void
 regexp_dealloc(RegexpObject2* self)
 {
   delete self->re2_obj;
   Py_XDECREF(self->attr_dict);
   PyObject_Del(self);
+}
+
+static void 
+prog_dealloc(ProgObject2* self)
+{
+	delete self->prog_obj;
+	Py_XDECREF(self->attr_dict);
+	PyObject_Del(self);
 }
 
 static PyObject*
@@ -423,6 +492,26 @@ regexp_test_fullmatch(RegexpObject2* self, PyObject* args, PyObject* kwds)
   return _do_search(self, args, kwds, RE2::ANCHOR_BOTH, false);
 }
 
+static PyObject*
+regexp_compile_to_prog(RegexpObject2* self, PyObject* args, PyObject* kwds)
+{
+	ProgObject2* prog = PyObject_New(ProgObject2, &Prog_Type2);
+  
+	if (prog == NULL) {
+    	return NULL;
+	}
+
+	prog->attr_dict = Py_BuildValue("{sO}", "re", self);
+	
+	if (prog->attr_dict == NULL) {
+    	Py_DECREF(prog);
+    	return NULL;
+	}
+	
+	prog->prog_obj = self->re2_obj->Regexp()->CompileToProg(0);
+
+  	return (PyObject*)prog;
+}
 
 static void
 match_dealloc(MatchObject2* self)
