@@ -37,9 +37,10 @@ using std::nothrow;
 #include <re2/re2.h>
 #include <re2/regexp.h>
 #include <re2/prog.h>
+#include <util/util.h>
+#include <util/sparse_set.h>
 using re2::RE2;
 using re2::StringPiece;
-
 
 typedef struct _RegexpObject2 {
   PyObject_HEAD
@@ -53,9 +54,16 @@ typedef struct _ProgObject2 {
   // __dict__.  Simpler than implementing getattr and possibly faster.
   PyObject* attr_dict;
 
-  PyObject* re;
   re2::Prog* prog_obj;
 } ProgObject2;
+
+typedef struct _InstObject2 {
+  PyObject_HEAD
+  // __dict__.  Simpler than implementing getattr and possibly faster.
+  PyObject* attr_dict;
+
+  re2::Prog::Inst* inst_obj;
+} InstObject2;
 
 typedef struct _MatchObject2 {
   PyObject_HEAD
@@ -91,6 +99,12 @@ static PyObject* regexp_test_match(RegexpObject2* self, PyObject* args, PyObject
 static PyObject* regexp_test_fullmatch(RegexpObject2* self, PyObject* args, PyObject* kwds);
 static PyObject* regexp_compile_to_prog(RegexpObject2* self, PyObject* args, PyObject* kwds);
 static void prog_dealloc(ProgObject2* self);
+static PyObject* create_prog(RegexpObject2* self);
+static PyObject* prog_str(ProgObject2* self);
+static PyObject* prog_insts(ProgObject2* self);
+static void inst_dealloc(InstObject2* self);
+static PyObject* create_inst(re2::Prog::Inst* inst);
+static PyObject* inst_str(InstObject2* self);
 static void match_dealloc(MatchObject2* self);
 static PyObject* create_match(PyObject* re, PyObject* string, long pos, long endpos, StringPiece* groups);
 static PyObject* match_group(MatchObject2* self, PyObject* args);
@@ -133,6 +147,17 @@ static PyMethodDef regexp_methods[] = {
   {NULL}  /* Sentinel */
 };
 
+static PyMethodDef prog_methods[] = {
+	{"insts", (PyCFunction)prog_insts, METH_NOARGS,
+	 NULL
+	},
+	{NULL}
+};
+
+static PyMethodDef inst_methods[] = {
+	{NULL}
+};
+
 static PyMethodDef match_methods[] = {
   {"group", (PyCFunction)match_group, METH_VARARGS,
     NULL
@@ -154,11 +179,6 @@ static PyMethodDef match_methods[] = {
   },
   {NULL}  /* Sentinel */
 };
-
-static PyMethodDef prog_methods[] = {
-	
-};
-
 
 // Simple method to block setattr.
 static int
@@ -231,7 +251,7 @@ static PyTypeObject Prog_Type2 = {
   0,                           /*tp_as_mapping*/
   0,                           /*tp_hash*/
   0,                           /*tp_call*/
-  0,                           /*tp_str*/
+  (reprfunc) prog_str,         /*tp_str*/
   0,                           /*tp_getattro*/
   _no_setattr,                 /*tp_setattro*/
   0,                           /*tp_as_buffer*/
@@ -251,6 +271,49 @@ static PyTypeObject Prog_Type2 = {
   0,                           /*tp_descr_get*/
   0,                           /*tp_descr_set*/
   offsetof(ProgObject2, attr_dict),  /*tp_dictoffset*/
+  0,                           /*tp_init*/
+  0,                           /*tp_alloc*/
+  0,                           /*tp_new*/
+};
+
+
+static PyTypeObject Inst_Type2 = {
+  PyObject_HEAD_INIT(NULL)
+  0,                           /*ob_size*/
+  "_re2.RE2_Inst",             /*tp_name*/
+  sizeof(InstObject2),         /*tp_basicsize*/
+  0,                           /*tp_itemsize*/
+  (destructor)inst_dealloc,    /*tp_dealloc*/
+  0,                           /*tp_print*/
+  0,                           /*tp_getattr*/
+  0,                           /*tp_setattr*/
+  0,                           /*tp_compare*/
+  0,                           /*tp_repr*/
+  0,                           /*tp_as_number*/
+  0,                           /*tp_as_sequence*/
+  0,                           /*tp_as_mapping*/
+  0,                           /*tp_hash*/
+  0,                           /*tp_call*/
+  (reprfunc) inst_str,         /*tp_str*/
+  0,                           /*tp_getattro*/
+  _no_setattr,                 /*tp_setattro*/
+  0,                           /*tp_as_buffer*/
+  Py_TPFLAGS_DEFAULT,          /*tp_flags*/
+  "RE2 inst objects",          /*tp_doc*/
+  0,                           /*tp_traverse*/
+  0,                           /*tp_clear*/
+  0,                           /*tp_richcompare*/
+  0,                           /*tp_weaklistoffset*/
+  0,                           /*tp_iter*/
+  0,                           /*tp_iternext*/
+  inst_methods,                /*tp_methods*/
+  0,                           /*tp_members*/
+  0,                           /*tp_getset*/
+  0,                           /*tp_base*/
+  0,                           /*tp_dict*/
+  0,                           /*tp_descr_get*/
+  0,                           /*tp_descr_set*/
+  offsetof(InstObject2, attr_dict),  /*tp_dictoffset*/
   0,                           /*tp_init*/
   0,                           /*tp_alloc*/
   0,                           /*tp_new*/
@@ -306,12 +369,103 @@ regexp_dealloc(RegexpObject2* self)
   PyObject_Del(self);
 }
 
+static PyObject*
+create_prog(RegexpObject2* self)
+{
+	ProgObject2* prog = PyObject_New(ProgObject2, &Prog_Type2);
+  
+	if (prog == NULL) {
+    	return NULL;
+	}
+	
+	prog->prog_obj = self->re2_obj->Regexp()->CompileToProg(0);
+
+	prog->attr_dict = Py_BuildValue("{sO}", 
+		"re", self);
+	
+	if (prog->attr_dict == NULL) {
+    	Py_DECREF(prog);
+    	return NULL;
+	}
+
+  	return (PyObject*)prog;
+}
+
 static void 
 prog_dealloc(ProgObject2* self)
 {
 	delete self->prog_obj;
 	Py_XDECREF(self->attr_dict);
 	PyObject_Del(self);
+}
+
+static PyObject* 
+prog_str(ProgObject2* self)
+{
+	string s = self->prog_obj->Dump();
+	
+	return PyString_FromStringAndSize(s.c_str(), s.size());
+}
+
+static void AddToQueue(re2::SparseSet* q, int id) {
+  if (id != 0)
+    q->insert(id);
+}
+
+static PyObject* 
+prog_insts(ProgObject2* self)
+{
+	re2::SparseSet q(self->prog_obj->size());
+	
+	AddToQueue(&q, self->prog_obj->start());
+	
+	PyObject *insts = PyList_New(0);
+	
+	for (re2::SparseSet::iterator it=q.begin(); it!=q.end(); ++it)
+	{
+		int id = *it;
+		
+		re2::Prog::Inst *inst = self->prog_obj->inst(id);
+		
+		PyList_Append(insts, create_inst(inst));
+		
+		AddToQueue(&q, inst->out());
+		
+		if (inst->opcode() == re2::kInstAlt || inst->opcode() == re2::kInstAltMatch)
+			AddToQueue(&q, inst->out1());
+	}
+	
+	return insts;
+}
+
+static void 
+inst_dealloc(InstObject2* self)
+{
+	Py_XDECREF(self->attr_dict);
+	PyObject_Del(self);
+}
+
+static PyObject* 
+create_inst(re2::Prog::Inst* inst_obj)
+{
+	InstObject2* inst = PyObject_New(InstObject2, &Inst_Type2);
+	
+	if (inst == NULL) {
+		return NULL;
+	}
+	
+	inst->inst_obj = inst_obj;
+	inst->attr_dict = Py_BuildValue("");
+
+	return (PyObject*)inst;
+}
+
+static PyObject* 
+inst_str(InstObject2* self)
+{
+	string s = self->inst_obj->Dump();
+	
+	return PyString_FromStringAndSize(s.c_str(), s.size());
 }
 
 static PyObject*
@@ -495,22 +649,7 @@ regexp_test_fullmatch(RegexpObject2* self, PyObject* args, PyObject* kwds)
 static PyObject*
 regexp_compile_to_prog(RegexpObject2* self, PyObject* args, PyObject* kwds)
 {
-	ProgObject2* prog = PyObject_New(ProgObject2, &Prog_Type2);
-  
-	if (prog == NULL) {
-    	return NULL;
-	}
-
-	prog->attr_dict = Py_BuildValue("{sO}", "re", self);
-	
-	if (prog->attr_dict == NULL) {
-    	Py_DECREF(prog);
-    	return NULL;
-	}
-	
-	prog->prog_obj = self->re2_obj->Regexp()->CompileToProg(0);
-
-  	return (PyObject*)prog;
+	return create_prog(self);
 }
 
 static void
@@ -819,6 +958,14 @@ PyMODINIT_FUNC
 init_re2(void)
 {
   if (PyType_Ready(&Regexp_Type2) < 0) {
+    return;
+  }
+
+  if (PyType_Ready(&Prog_Type2) < 0) {
+    return;
+  }
+
+  if (PyType_Ready(&Inst_Type2) < 0) {
     return;
   }
 
