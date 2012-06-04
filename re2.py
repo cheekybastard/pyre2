@@ -28,6 +28,24 @@
 
 import _re2
 
+class Inst(object):
+	kInstAlt 			= 0		# choose between out_ and out1_
+	kInstAltMatch		= 1 	# Alt: out_ is [00-FF] and back, out1_ is match; or vice versa.
+	kInstByteRange		= 2		# next (possible case-folded) byte must be in [lo_, hi_]
+	kInstCapture		= 3		# capturing parenthesis number cap_
+	kInstEmptyWidth		= 4		# empty-width special (^ $ ...); bit(s) set in empty_
+	kInstMatch			= 5		# found a match!
+	kInstNop			= 6		# no-op; occasionally unavoidable
+	kInstFail			= 7		# never match; occasionally unavoidable
+
+	kEmptyBeginLine        = 1<<0      # ^ - beginning of line
+	kEmptyEndLine          = 1<<1      # $ - end of line
+	kEmptyBeginText        = 1<<2      # \A - beginning of text
+	kEmptyEndText          = 1<<3      # \z - end of text
+	kEmptyWordBoundary     = 1<<4      # \b - word boundary
+	kEmptyNonWordBoundary  = 1<<5      # \B - not \b
+	kEmptyAllFlags         = (1<<6)-1
+
 __all__ = [
     "error",
     "escape",
@@ -35,6 +53,7 @@ __all__ = [
     "search",
     "match",
     "fullmatch",
+	"Inst",
     ]
 
 # Module-private compilation function, for future caching, other enhancements

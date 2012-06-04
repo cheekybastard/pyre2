@@ -103,7 +103,7 @@ static PyObject* create_prog(RegexpObject2* self);
 static PyObject* prog_str(ProgObject2* self);
 static PyObject* prog_insts(ProgObject2* self);
 static void inst_dealloc(InstObject2* self);
-static PyObject* create_inst(re2::Prog::Inst* inst);
+static PyObject* create_inst(ProgObject2* prog, re2::Prog::Inst* inst);
 static PyObject* inst_str(InstObject2* self);
 static void match_dealloc(MatchObject2* self);
 static PyObject* create_match(PyObject* re, PyObject* string, long pos, long endpos, StringPiece* groups);
@@ -427,7 +427,7 @@ prog_insts(ProgObject2* self)
 		
 		re2::Prog::Inst *inst = self->prog_obj->inst(id);
 		
-		PyList_Append(insts, create_inst(inst));
+		PyList_Append(insts, create_inst(self, inst));
 		
 		AddToQueue(&q, inst->out());
 		
@@ -446,7 +446,7 @@ inst_dealloc(InstObject2* self)
 }
 
 static PyObject* 
-create_inst(re2::Prog::Inst* inst_obj)
+create_inst(ProgObject2* prog, re2::Prog::Inst* inst_obj)
 {
 	InstObject2* inst = PyObject_New(InstObject2, &Inst_Type2);
 	
@@ -455,7 +455,51 @@ create_inst(re2::Prog::Inst* inst_obj)
 	}
 	
 	inst->inst_obj = inst_obj;
-	inst->attr_dict = Py_BuildValue("");
+	inst->attr_dict = Py_BuildValue("{sOsisisi}",
+		"prog", prog,
+		"id", inst_obj->id(prog->prog_obj),
+		"opcode", inst_obj->opcode(),
+		"out", inst_obj->out());
+		
+	if (inst->attr_dict == NULL) {
+    	Py_DECREF(inst);
+    	return NULL;
+	}
+		
+	switch (inst_obj->opcode()) {
+		case re2::kInstAlt:
+		case re2::kInstAltMatch:
+		{
+			PyDict_SetItemString(inst->attr_dict, "out1", PyInt_FromLong(inst_obj->out1()));
+			break;
+		}
+		case re2::kInstCapture:
+		{
+			PyDict_SetItemString(inst->attr_dict, "cap", PyInt_FromLong(inst_obj->cap()));
+			break;
+		}
+		case re2::kInstByteRange:
+		{
+			PyDict_SetItemString(inst->attr_dict, "low", PyInt_FromLong(inst_obj->lo()));
+			PyDict_SetItemString(inst->attr_dict, "high", PyInt_FromLong(inst_obj->hi()));
+			PyDict_SetItemString(inst->attr_dict, "foldcase", PyInt_FromLong(inst_obj->foldcase()));
+			break;
+		}
+		case re2::kInstMatch:
+		{
+			PyDict_SetItemString(inst->attr_dict, "match_id", PyInt_FromLong(inst_obj->match_id()));
+			break;
+		}
+		case re2::kInstEmptyWidth:
+		{
+			PyDict_SetItemString(inst->attr_dict, "empty", PyInt_FromLong(inst_obj->empty()));
+			break;
+		}
+		default:
+		{
+			break;
+		}
+	}
 
 	return (PyObject*)inst;
 }
