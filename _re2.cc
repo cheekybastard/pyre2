@@ -27,6 +27,7 @@
  */
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <structmember.h>
 
 #include <cstddef>
 
@@ -147,6 +148,11 @@ static PyMethodDef regexp_methods[] = {
   {NULL}  /* Sentinel */
 };
 
+static PyMemberDef regexp_members[] = {
+	{"__dict__", T_OBJECT, offsetof(RegexpObject2, attr_dict), READONLY},
+	{NULL}
+};
+
 static PyMethodDef prog_methods[] = {
 	{"insts", (PyCFunction)prog_insts, METH_NOARGS,
 	 NULL
@@ -154,7 +160,17 @@ static PyMethodDef prog_methods[] = {
 	{NULL}
 };
 
+static PyMemberDef prog_members[] = {
+	{"__dict__", T_OBJECT, offsetof(ProgObject2, attr_dict), READONLY},
+	{NULL}
+};
+
 static PyMethodDef inst_methods[] = {
+	{NULL}
+};
+
+static PyMemberDef inst_members[] = {
+	{"__dict__", T_OBJECT, offsetof(InstObject2, attr_dict), READONLY},
 	{NULL}
 };
 
@@ -178,6 +194,11 @@ static PyMethodDef match_methods[] = {
     NULL
   },
   {NULL}  /* Sentinel */
+};
+
+static PyMemberDef match_members[] = {
+	{"__dict__", T_OBJECT, offsetof(MatchObject2, attr_dict), READONLY},
+	{NULL}
 };
 
 // Simple method to block setattr.
@@ -222,7 +243,7 @@ static PyTypeObject Regexp_Type2 = {
   0,                           /*tp_iter*/
   0,                           /*tp_iternext*/
   regexp_methods,              /*tp_methods*/
-  0,                           /*tp_members*/
+  regexp_members,              /*tp_members*/
   0,                           /*tp_getset*/
   0,                           /*tp_base*/
   0,                           /*tp_dict*/
@@ -264,7 +285,7 @@ static PyTypeObject Prog_Type2 = {
   0,                           /*tp_iter*/
   0,                           /*tp_iternext*/
   prog_methods,                /*tp_methods*/
-  0,                           /*tp_members*/
+  prog_members,                /*tp_members*/
   0,                           /*tp_getset*/
   0,                           /*tp_base*/
   0,                           /*tp_dict*/
@@ -307,7 +328,7 @@ static PyTypeObject Inst_Type2 = {
   0,                           /*tp_iter*/
   0,                           /*tp_iternext*/
   inst_methods,                /*tp_methods*/
-  0,                           /*tp_members*/
+  inst_members,                /*tp_members*/
   0,                           /*tp_getset*/
   0,                           /*tp_base*/
   0,                           /*tp_dict*/
@@ -349,7 +370,7 @@ static PyTypeObject Match_Type2 = {
   0,                           /*tp_iter*/
   0,                           /*tp_iternext*/
   match_methods,               /*tp_methods*/
-  0,                           /*tp_members*/
+  match_members,               /*tp_members*/
   0,                           /*tp_getset*/
   0,                           /*tp_base*/
   0,                           /*tp_dict*/
